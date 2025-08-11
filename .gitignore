@@ -1,0 +1,46 @@
+HELP.md
+
+# Maven
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Log files
+*.log
+
+# Java / Class files
+*.class
+*.jar
+*.war
+*.ear
+
+# OS files
+.DS_Store
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Eclipse / STS
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# VS Code
+.vscode/
