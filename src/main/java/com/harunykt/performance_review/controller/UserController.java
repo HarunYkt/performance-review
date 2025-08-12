@@ -30,6 +30,7 @@ public class UserController {
         if (userService.emailExists(user.getEmail())) {
             return ResponseEntity.badRequest().body("Bu e-posta zaten kayıtlı");
         }
+        user.setRole(UserRole.EMPLOYEE);
         userService.saveUser(user);
         return ResponseEntity.ok("Kullanıcı Başarıyla Kaydedildi");
     }
@@ -61,6 +62,23 @@ public class UserController {
     public ResponseEntity<?> myProfile(Authentication authentication) {
         User me = userService.findByEmail(authentication.getName()).orElseThrow();
         return ResponseEntity.ok(userService.toDto(me));
+    }
+
+    // YENİ: Manager atama (sadece MANAGER olan kişi kullanabilsin)
+    @PutMapping("/{userId}/manager/{managerId}")
+    public ResponseEntity<?> assignManager(@PathVariable Long userId,
+                                           @PathVariable Long managerId,
+                                           Authentication auth) {
+        User current = userService.getByEmail(auth.getName()); // auth principal e-posta
+        if (current.getRole() != UserRole.MANAGER) {
+            return ResponseEntity.status(403).body("Sadece yöneticiler atama yapabilir");
+        }
+        try {
+            userService.assignManager(userId, managerId);
+            return ResponseEntity.ok("Yönetici atandı");
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
     }
 
     // ✅ Kendi adını güncelleme örneği

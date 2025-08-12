@@ -1,6 +1,7 @@
 package com.harunykt.performance_review.controller;
 
 import com.harunykt.performance_review.dto.AnonymousEvaluationDTO;
+import com.harunykt.performance_review.dto.SelfSummaryDTO;
 import com.harunykt.performance_review.model.Evaluation;
 import com.harunykt.performance_review.model.EvaluationType;
 import com.harunykt.performance_review.model.PeriodQuarter;
@@ -9,7 +10,6 @@ import com.harunykt.performance_review.model.UserRole;
 import com.harunykt.performance_review.service.EvaluationService;
 import com.harunykt.performance_review.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -31,67 +31,67 @@ public class EvaluationController {
         this.userService = userService;
     }
 
-    // ✅ 1) Değerlendirme ekleme
-    @PostMapping
-    public ResponseEntity<?> createEvaluation(
-            @RequestBody EvaluationRequest request,
-            Authentication authentication
+    // 1) Giriş yapan kişinin anonim özeti (isteğe bağlı yıl/çeyrek filtresi)
+    @GetMapping("/me")
+    public ResponseEntity<SelfSummaryDTO> mySummary(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) PeriodQuarter quarter,
+            Authentication auth
     ) {
-        try {
-            User evaluator = userService.findByEmail(authentication.getName()).orElseThrow();
-            User evaluated = userService.findById(request.getEvaluatedId()).orElseThrow();
-
-            evaluationService.createEvaluation(
-                    evaluator,
-                    evaluated,
-                    request.getScore(),
-                    request.getComment(),
-                    request.getType()
-            );
-
-            return ResponseEntity.ok("Değerlendirme başarıyla kaydedildi");
-
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
-
-        } catch (DataIntegrityViolationException ex) {
-            // UNIQUE kısıtı ihlali (aynı dönem ve aynı türde tekrar değerlendirme)
-            return ResponseEntity.badRequest().body("Bu dönemde bu kullanıcıyı aynı türde zaten değerlendirdiniz.");
-        }
+        User me = userService.getByEmail(auth.getName());
+        var dto = evaluationService.buildSelfSummary(me.getId(), year, quarter);
+        return ResponseEntity.ok(dto);
     }
 
-    // ✅ 2) Giriş yapan kişinin yaptığı değerlendirmeler
+    // 2) Değerlendirme ekleme (yıl/çeyrek dahil)
+    @PostMapping
+    public ResponseEntity<?> createEvaluation(
+            @RequestBody CreateEvaluationRequest request,
+            Authentication auth
+    ) {
+        User evaluator = userService.getByEmail(auth.getName());
+        User evaluated  = userService.getById(request.getEvaluatedId());
+
+        // Tek bir entity oluşturup servise veriyoruz
+        Evaluation e = new Evaluation();
+        e.setEvaluated(evaluated);
+        e.setType(request.getType());
+        e.setScore(request.getScore());
+        e.setComment(request.getComment());
+        e.setPeriodYear(request.getPeriodYear());
+        e.setPeriodQuarter(request.getPeriodQuarter());
+
+        evaluationService.createEvaluation(evaluator, e);
+        return ResponseEntity.ok("Değerlendirme başarıyla kaydedildi");
+    }
+
+    // 3) Giriş yapan kullanıcının yaptığı değerlendirmeler
     @GetMapping("/me/given")
-    public ResponseEntity<?> getMyEvaluations(Authentication authentication) {
-        User evaluator = userService.findByEmail(authentication.getName()).orElseThrow();
+    public ResponseEntity<List<Evaluation>> getMyEvaluations(Authentication auth) {
+        User evaluator = userService.getByEmail(auth.getName());
         List<Evaluation> evaluations = evaluationService.getEvaluationsByEvaluator(evaluator);
         return ResponseEntity.ok(evaluations);
     }
 
-    // ✅ 3) Yönetici: kullanıcı için anonim özet (+ dönem filtresi)
+    // 4) Yönetici: belirli kullanıcı için anonim özet (+ dönem filtresi)
     @GetMapping("/{userId}")
     public ResponseEntity<?> getEvaluationsForUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) String quarter,
-            Authentication authentication
+            @RequestParam(required = false) PeriodQuarter quarter,
+            Authentication auth
     ) {
-        User requester = userService.findByEmail(authentication.getName()).orElseThrow();
+        User requester = userService.getByEmail(auth.getName());
         if (requester.getRole() != UserRole.MANAGER) {
             return ResponseEntity.status(403).body("Bu bilgiye sadece yöneticiler erişebilir.");
         }
 
-        // quarter -> enum
-        PeriodQuarter q = null;
-        if (quarter != null && !quarter.isBlank()) {
-            q = PeriodQuarter.fromString(quarter); // Q1 | Q2 | Q3 | Q4
+        User evaluated = userService.getById(userId);
+
+        // Güvenlik: sadece yöneticisi olduğun çalışanı görebil
+        if (evaluated.getManager() == null || !evaluated.getManager().getId().equals(requester.getId())) {
+            return ResponseEntity.status(403).body("Sadece yöneticisi olduğunuz çalışanların özetini görebilirsiniz.");
         }
-
-        // 🔒 Lambdalar için final kopyalar
-        final Integer filterYear = year;
-        final PeriodQuarter filterQuarter = q;
-
-        User evaluated = userService.findById(userId).orElseThrow();
 
         // Ham listeler
         List<Evaluation> peerEvals = evaluationService.getEvaluationsForUser(evaluated)
@@ -102,22 +102,22 @@ public class EvaluationController {
 
         List<Evaluation> managerEvals = evaluationService.getManagerEvaluationsForUser(evaluated);
 
-        // Dönem filtresi (tek akışta)
+        // Dönem filtresi
         List<Evaluation> filteredPeerEvals = peerEvals.stream()
-                .filter(e -> filterYear == null || filterYear.equals(e.getPeriodYear()))
-                .filter(e -> filterQuarter == null || e.getPeriodQuarter() == filterQuarter)
+                .filter(e -> year == null || year.equals(e.getPeriodYear()))
+                .filter(e -> quarter == null || e.getPeriodQuarter() == quarter)
                 .toList();
 
         List<Evaluation> filteredManagerEvals = managerEvals.stream()
-                .filter(e -> filterYear == null || filterYear.equals(e.getPeriodYear()))
-                .filter(e -> filterQuarter == null || e.getPeriodQuarter() == filterQuarter)
+                .filter(e -> year == null || year.equals(e.getPeriodYear()))
+                .filter(e -> quarter == null || e.getPeriodQuarter() == quarter)
                 .toList();
 
         // Ortalamalar
         double peerAvg = filteredPeerEvals.stream().mapToInt(Evaluation::getScore).average().orElse(0.0);
         double managerAvg = filteredManagerEvals.stream().mapToInt(Evaluation::getScore).average().orElse(0.0);
 
-        // Anonim yorumlar
+        // Anonim yorumlar (puan + yorum)
         List<AnonymousEvaluationDTO> peerComments = filteredPeerEvals.stream()
                 .map(e -> new AnonymousEvaluationDTO(e.getScore(), e.getComment()))
                 .toList();
@@ -136,23 +136,26 @@ public class EvaluationController {
         return ResponseEntity.ok(response);
     }
 
-    // İç DTO (basit istek gövdesi)
-    public static class EvaluationRequest {
+    // ---- İÇ DTO ----
+    public static class CreateEvaluationRequest {
         private Long evaluatedId;
-        private int score;
+        private Integer score;
         private String comment;
         private EvaluationType type;
+        private Integer periodYear;          // örn: 2025
+        private PeriodQuarter periodQuarter; // Q1, Q2, Q3, Q4
 
         public Long getEvaluatedId() { return evaluatedId; }
         public void setEvaluatedId(Long evaluatedId) { this.evaluatedId = evaluatedId; }
-
-        public int getScore() { return score; }
-        public void setScore(int score) { this.score = score; }
-
+        public Integer getScore() { return score; }
+        public void setScore(Integer score) { this.score = score; }
         public String getComment() { return comment; }
         public void setComment(String comment) { this.comment = comment; }
-
         public EvaluationType getType() { return type; }
         public void setType(EvaluationType type) { this.type = type; }
+        public Integer getPeriodYear() { return periodYear; }
+        public void setPeriodYear(Integer periodYear) { this.periodYear = periodYear; }
+        public PeriodQuarter getPeriodQuarter() { return periodQuarter; }
+        public void setPeriodQuarter(PeriodQuarter periodQuarter) { this.periodQuarter = periodQuarter; }
     }
 }

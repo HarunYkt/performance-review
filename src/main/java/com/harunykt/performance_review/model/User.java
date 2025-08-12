@@ -1,9 +1,13 @@
 package com.harunykt.performance_review.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name ="users")
@@ -17,7 +21,7 @@ public class User {
     private String fullName;
 
     @Email
-    @Column(unique = true)
+    @Column(unique = true ,nullable = false)
     private String email;
 
     @NotBlank
@@ -27,7 +31,38 @@ public class User {
     @Enumerated(EnumType.STRING)
     private UserRole role;
 
+    @ManyToOne (fetch = FetchType.LAZY)
+    @JoinColumn (name = "manager_id")
+    @JsonIgnore
+    private User manager;
+
+    @OneToMany (mappedBy = "manager")
+    @JsonIgnore
+    private List<User> subordinates = new ArrayList<>();
+
     // Getter & Setter'lar
+
+    public User getManager () {
+        return manager;
+    }
+
+    public void setManager(User manager) {
+        this.manager=manager;
+    }
+
+    public List<User> getSubordinates() {
+        return subordinates;
+    }
+
+    public void setSubordinates(List<User> subs) {
+        this.subordinates=subs;
+    }
+
+
+
+
+
+
     public Long getId(){
         return id;
     }

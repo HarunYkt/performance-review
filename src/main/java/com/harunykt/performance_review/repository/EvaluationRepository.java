@@ -1,9 +1,9 @@
 package com.harunykt.performance_review.repository;
 
 import com.harunykt.performance_review.model.Evaluation;
+import com.harunykt.performance_review.model.EvaluationType;
 import com.harunykt.performance_review.model.PeriodQuarter;
 import com.harunykt.performance_review.model.User;
-import com.harunykt.performance_review.model.EvaluationType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -22,6 +22,13 @@ public interface EvaluationRepository extends JpaRepository<Evaluation, Long> {
 
  // Belirli türde yapılan tüm değerlendirmeler (örneğin: MANAGER_TO_EMPLOYEE)
  List<Evaluation> findByType(EvaluationType type);
+
+ List<Evaluation> findByEvaluatedId(Long evaluatedId);
+
+ List<Evaluation> findByEvaluatedIdAndPeriodYear(Long evaluatedId, Integer year);
+
+ List <Evaluation> findByEvaluatedIdAndPeriodYearAndPeriodQuarter(
+          Long evaluatedId, Integer year , PeriodQuarter quarter);
 
 
  Optional <Evaluation> findFirstByEvaluatorIdAndEvaluatedIdAndTypeAndPeriodYearAndPeriodQuarter(
