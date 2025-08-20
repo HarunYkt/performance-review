@@ -9,11 +9,19 @@ import com.harunykt.performance_review.model.User;
 import com.harunykt.performance_review.model.UserRole;
 import com.harunykt.performance_review.service.EvaluationService;
 import com.harunykt.performance_review.service.UserService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +40,7 @@ public class EvaluationController {
     }
 
     // 1) Giriş yapan kişinin anonim özeti (isteğe bağlı yıl/çeyrek filtresi)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/me")
     public ResponseEntity<SelfSummaryDTO> mySummary(
             @RequestParam(required = false) Integer year,
@@ -43,14 +52,30 @@ public class EvaluationController {
         return ResponseEntity.ok(dto);
     }
 
-    // 2) Değerlendirme ekleme (yıl/çeyrek dahil)
+    // 2) Değerlendirme ekleme (yıl/çeyrek isteğe bağlı; yoksa otomatik doldurulur)
+    @PreAuthorize("isAuthenticated()")
     @PostMapping
     public ResponseEntity<?> createEvaluation(
-            @RequestBody CreateEvaluationRequest request,
+            @RequestBody @Valid CreateEvaluationRequest request,
             Authentication auth
     ) {
         User evaluator = userService.getByEmail(auth.getName());
         User evaluated  = userService.getById(request.getEvaluatedId());
+
+        // Dönem alanları boş ise bugünkü tarihten set et
+        Integer year = request.getPeriodYear();
+        PeriodQuarter quarter = request.getPeriodQuarter();
+        if (year == null || quarter == null) {
+            LocalDate today = LocalDate.now();
+            if (year == null) year = today.getYear();
+            if (quarter == null) {
+                int m = today.getMonthValue();
+                if (m <= 3) quarter = PeriodQuarter.Q1;
+                else if (m <= 6) quarter = PeriodQuarter.Q2;
+                else if (m <= 9) quarter = PeriodQuarter.Q3;
+                else quarter = PeriodQuarter.Q4;
+            }
+        }
 
         // Tek bir entity oluşturup servise veriyoruz
         Evaluation e = new Evaluation();
@@ -58,14 +83,20 @@ public class EvaluationController {
         e.setType(request.getType());
         e.setScore(request.getScore());
         e.setComment(request.getComment());
-        e.setPeriodYear(request.getPeriodYear());
-        e.setPeriodQuarter(request.getPeriodQuarter());
+        e.setPeriodYear(year);
+        e.setPeriodQuarter(quarter);
 
-        evaluationService.createEvaluation(evaluator, e);
-        return ResponseEntity.ok("Değerlendirme başarıyla kaydedildi");
+        var created = evaluationService.createEvaluation(evaluator, e);
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("message", "Değerlendirme başarıyla kaydedildi");
+        resp.put("id", created.getId());
+        resp.put("periodYear", created.getPeriodYear());
+        resp.put("periodQuarter", created.getPeriodQuarter());
+        return ResponseEntity.status(201).body(resp);
     }
 
     // 3) Giriş yapan kullanıcının yaptığı değerlendirmeler
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/me/given")
     public ResponseEntity<List<Evaluation>> getMyEvaluations(Authentication auth) {
         User evaluator = userService.getByEmail(auth.getName());
@@ -74,6 +105,7 @@ public class EvaluationController {
     }
 
     // 4) Yönetici: belirli kullanıcı için anonim özet (+ dönem filtresi)
+    @PreAuthorize("hasRole('MANAGER')")
     @GetMapping("/{userId}")
     public ResponseEntity<?> getEvaluationsForUser(
             @PathVariable Long userId,
@@ -83,23 +115,25 @@ public class EvaluationController {
     ) {
         User requester = userService.getByEmail(auth.getName());
         if (requester.getRole() != UserRole.MANAGER) {
-            return ResponseEntity.status(403).body("Bu bilgiye sadece yöneticiler erişebilir.");
+            // 403'ü GlobalExceptionHandler düzgün JSON yapısı ile döndürsün
+            throw new AccessDeniedException("Bu bilgiye sadece yöneticiler erişebilir.");
         }
 
         User evaluated = userService.getById(userId);
 
         // Güvenlik: sadece yöneticisi olduğun çalışanı görebil
         if (evaluated.getManager() == null || !evaluated.getManager().getId().equals(requester.getId())) {
-            return ResponseEntity.status(403).body("Sadece yöneticisi olduğunuz çalışanların özetini görebilirsiniz.");
+            throw new AccessDeniedException("Sadece yöneticisi olduğunuz çalışanların özetini görebilirsiniz.");
         }
 
         // Ham listeler
+        // Peer değerlendirmeleri: organizasyon tanımına göre PEER_TO_PEER'i baz alıyoruz
         List<Evaluation> peerEvals = evaluationService.getEvaluationsForUser(evaluated)
                 .stream()
-                .filter(e -> e.getType() == EvaluationType.PEER_TO_PEER
-                        || e.getType() == EvaluationType.PEER_TO_MANAGER)
+                .filter(e -> e.getType() == EvaluationType.PEER_TO_PEER)
                 .toList();
 
+        // Manager değerlendirmeleri: yöneticiden çalışana
         List<Evaluation> managerEvals = evaluationService.getManagerEvaluationsForUser(evaluated);
 
         // Dönem filtresi
@@ -138,12 +172,12 @@ public class EvaluationController {
 
     // ---- İÇ DTO ----
     public static class CreateEvaluationRequest {
-        private Long evaluatedId;
-        private Integer score;
-        private String comment;
-        private EvaluationType type;
-        private Integer periodYear;          // örn: 2025
-        private PeriodQuarter periodQuarter; // Q1, Q2, Q3, Q4
+        @NotNull private Long evaluatedId;
+        @Min(1) @Max(10) private Integer score;          // 1-10 aralığı (projede genelde bu kullanılıyor)
+        @Size(max = 500) private String comment;
+        @NotNull private EvaluationType type;
+        @Min(2000) @Max(2100) private Integer periodYear;   // örn: 2025 (opsiyonel; yoksa otomatik set edilir)
+        private PeriodQuarter periodQuarter;                // Q1, Q2, Q3, Q4 (opsiyonel; yoksa otomatik set edilir)
 
         public Long getEvaluatedId() { return evaluatedId; }
         public void setEvaluatedId(Long evaluatedId) { this.evaluatedId = evaluatedId; }

@@ -7,6 +7,7 @@ import com.harunykt.performance_review.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -45,6 +46,7 @@ public class UserController {
 
     // ✅ Yalnızca MANAGER tüm kullanıcıları listeleyebilir (DTO listesi)
     @GetMapping
+    @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<?> listAllUsers(Authentication authentication) {
         User requester = userService.findByEmail(authentication.getName()).orElseThrow();
         if (requester.getRole() != UserRole.MANAGER) {
@@ -66,6 +68,7 @@ public class UserController {
 
     // YENİ: Manager atama (sadece MANAGER olan kişi kullanabilsin)
     @PutMapping("/{userId}/manager/{managerId}")
+    @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<?> assignManager(@PathVariable Long userId,
                                            @PathVariable Long managerId,
                                            Authentication auth) {
