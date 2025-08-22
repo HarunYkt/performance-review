@@ -24,14 +24,30 @@ public class AuthController {
         this.jwtService = jwtService;
     }
 
-    // (İstersen bilgi amaçlı bırak) Basit login mesajı
+    // JWT token ile login
     @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody LoginRequest request) {
-        return userService.findByEmail(request.getEmail())
-                .map(user -> passwordEncoder.matches(request.getPassword(), user.getPassword())
-                        ? ResponseEntity.ok("Giriş başarılı. Hoş geldin, " + user.getFullName() + "!")
-                        : ResponseEntity.badRequest().body("Şifre hatalı."))
-                .orElseGet(() -> ResponseEntity.status(404).body("Kullanıcı bulunamadı."));
+    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+        try {
+            User user = userService.findByEmail(request.getEmail())
+                    .orElseThrow(() -> new IllegalArgumentException("Kullanıcı bulunamadı"));
+            
+            if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Şifre hatalı"));
+            }
+            
+            String token = jwtService.generateToken(user);
+            return ResponseEntity.ok(Map.of(
+                    "token", token,
+                    "user", Map.of(
+                            "id", user.getId(),
+                            "email", user.getEmail(),
+                            "fullName", user.getFullName(),
+                            "role", user.getRole()
+                    )
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
 
     // GERÇEK: JWT üretir

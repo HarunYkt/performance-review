@@ -9,19 +9,12 @@ import com.harunykt.performance_review.model.PeriodQuarter;
 import java.time.LocalDate;
 
 @Entity
-@Table(name = "evaluations",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_eval_period",
-                columnNames = {"evaluator_id","evaluated_id","type", "period_year","period_quarter"}
-        )
-)
+@Table(name = "evaluations")
 public class Evaluation {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(nullable = false)
-    private String employeeEmail;
 
     private Integer periodYear;
 
@@ -39,8 +32,8 @@ public class Evaluation {
     @JoinColumn(name = "evaluated_id", nullable = false)
     private User evaluated;
 
-    // 1–5 arası puan
-    @Min(1) @Max(5)
+    // 1–10 arası puan
+    @Min(1) @Max(10)
     @Column(nullable = false)
     private int score;
 

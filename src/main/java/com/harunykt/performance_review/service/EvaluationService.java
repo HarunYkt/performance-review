@@ -28,6 +28,13 @@ public class EvaluationService {
     }
 
     /**
+     * Tüm değerlendirmeleri getir (yönetici için)
+     */
+    public List<Evaluation> getAllEvaluations() {
+        return evaluationRepository.findAll();
+    }
+
+    /**
      * Controller'ın çağırdığı yeni imza:
      *   createEvaluation(evaluator, evaluationEntity)
      *
@@ -39,10 +46,7 @@ public class EvaluationService {
         // evaluated'ı DB'den güvenle çek (id doğrulama)
         User evaluated = userService.getById(evaluation.getEvaluated().getId());
 
-        // kişi kendini değerlendiremez
-        if (evaluator.getId().equals(evaluated.getId())) {
-            throw new IllegalArgumentException("Kişi kendisini değerlendiremez.");
-        }
+        // Kişi kendini değerlendirebilir (self-evaluation allowed)
 
         // --- DÖNEM BİLGİLERİ ---
         LocalDate now = LocalDate.now();
@@ -55,48 +59,49 @@ public class EvaluationService {
         evaluation.setPeriodQuarter(quarter);
         evaluation.setDate(now);
 
-        // --- İLİŞKİ KURALLARI ---
+        // --- İLİŞKİ KURALLARI (Esnek) ---
+        // Herkes herkesi değerlendirebilir, sadece type kontrolü yapılır
         switch (evaluation.getType()) {
             case MANAGER_TO_EMPLOYEE -> {
                 if (evaluator.getRole() != UserRole.MANAGER || evaluated.getRole() != UserRole.EMPLOYEE) {
                     throw new IllegalArgumentException("MANAGER_TO_EMPLOYEE yalnızca MANAGER → EMPLOYEE için geçerlidir.");
                 }
-                if (evaluated.getManager() == null || !evaluated.getManager().getId().equals(evaluator.getId())) {
-                    throw new IllegalArgumentException("Sadece yöneticisi olduğunuz çalışanı değerlendirebilirsiniz.");
-                }
+                // Manager herhangi bir employee'yi değerlendirebilir
             }
             case PEER_TO_MANAGER -> {
                 if (evaluator.getRole() != UserRole.EMPLOYEE || evaluated.getRole() != UserRole.MANAGER) {
                     throw new IllegalArgumentException("PEER_TO_MANAGER yalnızca EMPLOYEE → MANAGER için geçerlidir.");
                 }
-                if (evaluator.getManager() == null || !evaluator.getManager().getId().equals(evaluated.getId())) {
-                    throw new IllegalArgumentException("Sadece kendi yöneticinizi değerlendirebilirsiniz.");
-                }
+                // Employee herhangi bir manager'ı değerlendirebilir
             }
             case PEER_TO_PEER -> {
                 if (evaluator.getRole() != UserRole.EMPLOYEE || evaluated.getRole() != UserRole.EMPLOYEE) {
-                    throw new IllegalArgumentException("PEER_TO_PEER yalnızca aynı seviyedeki çalışanlar arasında yapılır.");
+                    throw new IllegalArgumentException("PEER_TO_PEER yalnızca EMPLOYEE → EMPLOYEE için geçerlidir.");
                 }
-                if (evaluator.getManager() == null || evaluated.getManager() == null ||
-                        !evaluator.getManager().getId().equals(evaluated.getManager().getId())) {
-                    throw new IllegalArgumentException("Aynı yöneticiye bağlı çalışanlar birbirini değerlendirebilir.");
+                // Employee herhangi bir employee'yi (kendisi dahil) değerlendirebilir
+            }
+            case SELF_EVALUATION -> {
+                if (!evaluator.getId().equals(evaluated.getId())) {
+                    throw new IllegalArgumentException("SELF_EVALUATION sadece kendi kendinizi değerlendirmek için kullanılabilir.");
                 }
+                // Herkes kendini değerlendirebilir
             }
             default -> throw new IllegalArgumentException("Desteklenmeyen değerlendirme türü.");
         }
 
-        // --- DUPLICATE KONTROL ---
-        var existing = evaluationRepository
-                .findFirstByEvaluatorIdAndEvaluatedIdAndTypeAndPeriodYearAndPeriodQuarter(
-                        evaluator.getId(),
-                        evaluated.getId(),
-                        evaluation.getType(),
-                        year,
-                        quarter
-                );
-        if (existing.isPresent()) {
-            throw new IllegalArgumentException("Bu dönemde bu kullanıcıyı aynı türde zaten değerlendirdiniz.");
-        }
+        // --- DUPLICATE KONTROL (REMOVED) ---
+        // Aynı dönemde birden fazla değerlendirme yapılabilir
+        // var existing = evaluationRepository
+        //         .findFirstByEvaluatorIdAndEvaluatedIdAndTypeAndPeriodYearAndPeriodQuarter(
+        //                 evaluator.getId(),
+        //                 evaluated.getId(),
+        //                 evaluation.getType(),
+        //                 year,
+        //                 quarter
+        //         );
+        // if (existing.isPresent()) {
+        //     throw new IllegalArgumentException("Bu dönemde bu kullanıcıyı aynı türde zaten değerlendirdiniz.");
+        // }
 
         // kaydet
         evaluation.setEvaluator(evaluator);
@@ -117,6 +122,13 @@ public class EvaluationService {
     // ✅ Giriş yapan kişinin yaptığı değerlendirmeler
     public List<Evaluation> getEvaluationsByEvaluator(User evaluator) {
         return evaluationRepository.findByEvaluator(evaluator);
+    }
+
+    /**
+     * Belirli kullanıcının aldığı değerlendirmeler
+     */
+    public List<Evaluation> getEvaluationsByEvaluated(User evaluated) {
+        return evaluationRepository.findByEvaluated(evaluated);
     }
 
     // ✅ Ortalama skor (gerekirse)
