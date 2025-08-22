@@ -1,5 +1,9 @@
 package com.harunykt.performance_review.config;
 
+// This file is deprecated - JWT configuration moved to SecurityConfig.java
+// Keeping for reference only - all beans are commented out to prevent conflicts
+
+/*
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -11,16 +15,16 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 
-//@Configuration
+@Configuration
 public class SecurityJwtConfig {
 
- //   @Bean
+    @Bean
     public JwtEncoder jwtEncoder(@Value("${app.jwt.secret}") String secret) {
         SecretKey key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         return new NimbusJwtEncoder(new ImmutableSecret<>(key));
     }
 
-   // @Bean
+    @Bean
     public JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {
         SecretKey key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         return NimbusJwtDecoder.withSecretKey(key)
@@ -28,3 +32,4 @@ public class SecurityJwtConfig {
                 .build();
     }
 }
+*/

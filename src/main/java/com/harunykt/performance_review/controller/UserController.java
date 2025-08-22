@@ -84,6 +84,20 @@ public class UserController {
         }
     }
 
+    // ✅ Değerlendirilebilir kullanıcıları listele (kendisi dahil)
+    @GetMapping("/evaluable")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<UserDto>> getEvaluableUsers(Authentication authentication) {
+        User currentUser = userService.findByEmail(authentication.getName()).orElseThrow();
+        
+        List<UserDto> evaluableUsers = userService.findAll()
+                .stream()
+                .map(userService::toDto)
+                .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(evaluableUsers);
+    }
+
     // ✅ Kendi adını güncelleme örneği
     public static class UpdateNameRequest {
         private String fullName;
